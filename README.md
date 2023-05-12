@@ -1,4 +1,5 @@
 # iffnsTreesForUnity
+Development currently on hold due to other priorities.
 
 ### Git Submodule integration
 Add this submodule with the following git command (Assuming the root of your Git project is the Unity project folder)
