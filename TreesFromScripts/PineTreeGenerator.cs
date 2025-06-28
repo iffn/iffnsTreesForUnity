@@ -1,5 +1,7 @@
 using System.Threading;
+using Unity.VisualScripting;
 using UnityEngine;
+using UnityEngine.AI;
 
 public class PineTreeGenerator : MonoBehaviour
 {
@@ -12,14 +14,15 @@ public class PineTreeGenerator : MonoBehaviour
     const int maxNodesPerChild = 32;
 
     // Hierarchy
-    int[] parentIndices;
-    int[][] parentChildIndices;
-    int[][] parentChildNodeIndices;
+    int[] parentIndices;            // -2 = unused, -1 = base node, else = parent index
+    int[] childParentIndex;         // Child x, returns local child index of parent
+    int[][] parentChildIndices;     // Parent x, local child y, returns child index, -1 if not assinged
+    int[] childParentNodeIndex;     // Child x, returns node position of parent for origin
     Vector3[] nodeDirections;
     Vector3[][] nodePositions;
 
     // Growth
-    float[] growths;
+    public float[] growths;
 
     // Mesh data per node
     Vector3[][] vertices;
@@ -55,6 +58,31 @@ public class PineTreeGenerator : MonoBehaviour
         debugTriangles = mesh.triangles;
     }
 
+    private void Update()
+    {
+        growths[0] = Time.time + 1;
+
+        for (int i = 0; i < maxChildren; i++)
+        {
+            GrowBranch(i);
+            GenerateMesh(i);
+        }
+
+        Mesh mesh = transform.GetComponent<MeshFilter>().sharedMesh;
+        if (mesh == null)
+        {
+            mesh = new Mesh();
+            transform.GetComponent<MeshFilter>().sharedMesh = mesh;
+        }
+
+        AssembleTreeMesh(mesh);
+
+        linkedLineRenderer.positionCount = nodePositions[targetLineRenderer].Length;
+        linkedLineRenderer.SetPositions(nodePositions[targetLineRenderer]);
+
+        debugTriangles = mesh.triangles;
+    }
+
     void SetInitialTree()
     {
         parentIndices[0] = -1;
@@ -64,20 +92,27 @@ public class PineTreeGenerator : MonoBehaviour
         }
 
         nodeDirections[0] = Vector3.up;
-        growths[0] = 8;
+        growths[0] = 1;
     }
 
     void InitializeArrays()
     {
         parentIndices = new int[maxChildren];
 
+        childParentIndex = new int[maxChildren];
+
         parentChildIndices = new int[maxChildren][];
         for (int i = 0; i < parentChildIndices.Length; i++)
+        {
             parentChildIndices[i] = new int[maxChildrenPerParent];
 
-        parentChildNodeIndices = new int[maxChildren][];
-        for(int i = 0; i<parentChildNodeIndices.Length; i++)
-            parentChildNodeIndices[i] = new int[maxChildrenPerParent];
+            for(int j = 0;  j < parentChildIndices[i].Length; j++)
+            {
+                parentChildIndices[i][j] = -1;
+            }
+        }
+
+        childParentNodeIndex = new int[maxChildren];
 
         nodePositions = new Vector3[maxChildren][];
         for(int i = 0;i<nodePositions.Length; i++)
@@ -103,25 +138,20 @@ public class PineTreeGenerator : MonoBehaviour
         // Root position
         Vector3 origin;
 
+        /*
+        int[] parentIndices;            // -2 = unused, -1 = base node, else = parent index
+        int[] childParentIndex;         // Child x, returns local child index of parent
+        int[][] parentChildIndices;     // Parent x, local child y, returns child index, -1 if not assinged
+        int[][] parentChildNodeIndices; // Parent x, local child y, node z
+        int[] childParentNodeIndex;     // Child x, returns node position of parent for origin
+        */
+
         if (parentIndex == -2)
             return;
         else if(parentIndex >= 0)
         {
             // Branch
-            int[] searchInParent = parentChildIndices[parentIndex];
-
-            for(int i = 0; i < searchInParent.Length; i++)
-            {
-                if(searchInParent[i] == index)
-                {
-                    int nodeIndex = parentChildNodeIndices[parentIndex][i];
-                    origin = nodePositions[parentIndex][nodeIndex];
-                    break;
-                }
-            }
-
-            Debug.LogWarning($"Problem when creating tree: Node no found in {nameof(parentChildNodeIndices)}");
-            origin = Vector3.zero;
+            origin = nodePositions[parentIndex][childParentNodeIndex[index]];
         }
         else if(parentIndex == -1)
         {
@@ -149,7 +179,57 @@ public class PineTreeGenerator : MonoBehaviour
         for(int i =1; i < numberOfNodes; i++)
         {
             prevPosition += nodeOffset;
-            nodePositions[index][i] = prevPosition + 0.1f * RandomPerpendicular(nodeOffset).normalized;
+            nodePositions[index][i] = prevPosition + 0.1f * RandomPerpendicular(nodeOffset, 123456).normalized;
+        }
+
+        // Child nodes
+
+        /*
+        int[] parentIndices;            // -2 = unused, -1 = base node, else = parent index
+        int[] childParentIndex;         // Child x, returns local child index of parent
+        int[][] parentChildIndices;     // Parent x, local child y, returns child index, -1 if not assinged
+        int[][] parentChildNodeIndices; // Parent x, local child y, node z
+        int[] childParentNodeIndex;     // Child x, returns node position of parent for origin
+        */
+
+        int shouldBeChildren = (int)(growth * 0.2f);
+
+        for (int i = 0; i < shouldBeChildren; i++)
+        {
+            int childIndex = parentChildIndices[index][i];
+            
+            if (childIndex == -1)
+            {
+                // Assign new child
+                
+                for (childIndex = index; childIndex < parentIndices.Length; childIndex++) // Find next available child
+                {
+                    if (parentIndices[childIndex] == -2)
+                    {
+                        parentIndices[childIndex] = index;
+                        childParentIndex[childIndex] = i;
+                        parentChildIndices[index][i] = childIndex;
+                        childParentNodeIndex[childIndex] = (int)(numberOfNodes * 0.8f);
+                        nodeDirections[childIndex] = RandomPerpendicular(nodeDirections[index], i);
+                        break;
+                    }
+                }
+            }
+
+            try
+            {
+                childIndex = parentChildIndices[index][i];
+
+                growths[childIndex] = growth * 0.5f;
+            }
+            catch(System.Exception e)
+            {
+
+                Debug.Log("");
+
+                throw e;
+            }
+            
         }
     }
 
@@ -290,16 +370,18 @@ public class PineTreeGenerator : MonoBehaviour
         return returnArray;
     }
 
-    Vector3 RandomPerpendicular(Vector3 normalDirection)
+    Vector3 RandomPerpendicular(Vector3 normalDirection, int seed)
     {
-        // Step 1: Choose any vector not parallel to nodeOffset
+        // Step 1: Choose any vector not parallel to normalDirection
         Vector3 arbitrary = (Mathf.Abs(normalDirection.x) < 0.99f) ? Vector3.right : Vector3.up;
 
         // Step 2: Take cross product to get perpendicular vector
         Vector3 perpendicular = Vector3.Cross(normalDirection.normalized, arbitrary).normalized;
 
-        // Step 3: Optionally rotate around nodeOffset for random direction
-        float angle = Random.Range(0f, 360f);
+        // Step 3: Deterministic random angle using a consistent seed
+        System.Random seededRandom = new System.Random(seed);
+        float angle = (float)seededRandom.NextDouble() * 360f;
+
         Quaternion rotation = Quaternion.AngleAxis(angle, normalDirection.normalized);
         return rotation * perpendicular;
     }
