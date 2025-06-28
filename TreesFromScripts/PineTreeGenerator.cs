@@ -122,8 +122,6 @@ public class PineTreeGenerator : MonoBehaviour
 
         nodeDirections = new Vector3[maxChildren];
 
-        nodePositions = new Vector3[maxNodesPerChild][];
-        
         growths = new float[maxChildren];
 
         vertices = new Vector3[maxChildren][];
@@ -133,6 +131,9 @@ public class PineTreeGenerator : MonoBehaviour
 
     void GrowBranch(int index)
     {
+        if(index > maxChildren - 1)
+            return;
+
         int parentIndex = parentIndices[index];
 
         // Root position
@@ -168,10 +169,18 @@ public class PineTreeGenerator : MonoBehaviour
         float growth = growths[index];
         int numberOfNodes = System.Math.Clamp((int)growth, 2, maxNodesPerChild);
         float nodeLenght = growth * 0.1f;
-        Vector3 nodeOffset = nodeDirections[index];
+        Vector3 nodeOffset = nodeDirections[index] * growth * 0.1f;
 
         //Node positions
-        nodePositions[index] = new Vector3[numberOfNodes];
+        try
+        {
+            nodePositions[index] = new Vector3[numberOfNodes];
+        }
+        catch(System.Exception e)
+        {
+            Debug.Log("");
+        }
+
         nodePositions[index][0] = origin;
 
         Vector3 prevPosition = origin;
@@ -264,7 +273,7 @@ public class PineTreeGenerator : MonoBehaviour
 
             for (int j = 0; j < numberOfEdges; j++)
             {
-                vertices[index][baseIndex + j + 1] = currentNodePositions[i] + offsets[j];
+                vertices[index][baseIndex + j + 1] = currentNodePositions[i] + growth * 0.1f * offsets[j];
 
                 uvs[index][baseIndex + j + 1] = new Vector2(1, verticalUVPosition);
             }
